@@ -1,7 +1,9 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { readInterpretStream } from '@/lib/ai/stream-client';
 import type { ZiweiChart, Palace } from '@/lib/ziwei/types';
+import type { TimeLayerView } from '@/lib/ziwei/time-layers';
 import type { TimeView } from './TimeNav';
 
 interface Message {
@@ -20,6 +22,8 @@ interface InsightPanelProps {
   chart: ZiweiChart;
   selectedPalace?: Palace | null;
   selectedSiHua?: SelectedSiHua | null;
+  timeView?: TimeLayerView;
+  liunianYear?: number;
 }
 
 const TOPICS = [
@@ -29,6 +33,7 @@ const TOPICS = [
   { key: 'wealth',      label: '财运' },
   { key: 'health',      label: '健康' },
   { key: 'personality', label: '性格' },
+  { key: 'liunian',     label: '流年' },
 ] as const;
 
 const TOPIC_PROMPTS: Record<string, string> = {
@@ -127,6 +132,23 @@ const TOPIC_PROMPTS: Record<string, string> = {
 
 **【优势与人生课题】**
 天赋优势，以及需要面对的人生功课。`,
+
+  liunian: `请以流年为重点做三层合参，必须明确区分：
+
+**【本命层】**
+本命四化及其落宫，说明哪些是长期底色。
+
+**【大限层】**
+所选流年所属大限的宫位、宫干四化与落宫，说明这十年的主题。
+
+**【流年层】**
+所选流年的干支、流年命宫、流年四化星与各自落宫，说明这一年的触发点。
+
+**【三层叠加】**
+本命、大限、流年四化如何叠加；相同星曜或宫位被重复引动时重点说明。
+
+**【行动建议】**
+按事业、财务、关系、身心四个角度给出克制、可执行的建议。`,
 };
 
 const PALACE_ROLES: Record<string, string> = {
@@ -182,7 +204,13 @@ function AiContent({ text, streaming }: { text: string; streaming?: boolean }) {
   );
 }
 
-export default function InsightPanel({ chart, selectedPalace, selectedSiHua }: InsightPanelProps) {
+export default function InsightPanel({
+  chart,
+  selectedPalace,
+  selectedSiHua,
+  timeView = 'mingpan',
+  liunianYear = new Date().getFullYear(),
+}: InsightPanelProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -279,40 +307,34 @@ ${selectedSiHua.starName}化${selectedSiHua.siHua}落在【${palaceName}】，�
       const res = await fetch('/api/interpret', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ chart, messages: apiMessages }),
+        body: JSON.stringify({
+          chart,
+          messages: apiMessages,
+          timeContext: { view: timeView, liunianYear },
+        }),
       });
-      if (res.status === 404) throw new Error('api-missing');
-      if (!res.ok) throw new Error('请求失败');
-      if (!res.body) throw new Error('无响应流');
-
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
       let assistantText = '';
-
-      setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        for (const line of chunk.split('\n')) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6);
-          if (data === '[DONE]') break;
-          try {
-            const delta = JSON.parse(data).delta?.text ?? '';
-            assistantText += delta;
-            setMessages(prev => {
-              const updated = [...prev];
-              updated[updated.length - 1] = { role: 'assistant', content: assistantText };
-              return updated;
-            });
-          } catch { /* skip */ }
-        }
-      }
+      await readInterpretStream(
+        res,
+        delta => {
+          assistantText += delta;
+          setMessages(prev => {
+            const updated = [...prev];
+            updated[updated.length - 1] = { role: 'assistant', content: assistantText };
+            return updated;
+          });
+        },
+        () => setMessages(prev => [...prev, { role: 'assistant', content: '' }]),
+      );
     } catch (e) {
       const missing = e instanceof Error && e.message === 'api-missing';
-      setMessages(prev => [...prev, { role: 'assistant', content: missing ? '开源版不含 AI 解读接口（/api/interpret），需要你自己实现后才能用，详见 README「快速开始」。排盘本身不需要任何 API Key。' : '解读失败，请稍后重试。' }]);
+      const reason = e instanceof Error && !missing ? e.message : '请稍后重试。';
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: missing
+          ? 'AI 解读接口不存在，请检查本地部署是否完整。'
+          : `解读失败：${reason}`,
+      }]);
     } finally {
       setLoading(false);
       loadingRef.current = false;
@@ -351,7 +373,7 @@ ${selectedSiHua.starName}化${selectedSiHua.siHua}落在【${palaceName}】，�
 
       {/* ── Topic buttons ── */}
       <div className="flex-shrink-0 px-2 pt-2.5 pb-2" style={{ borderBottom: '1px solid var(--t-border)' }}>
-        <div className="grid grid-cols-6 gap-1">
+        <div className="grid grid-cols-7 gap-1">
           {TOPICS.map(t => {
             const isActive = activeTopic === t.key;
             return (
@@ -440,7 +462,7 @@ ${selectedSiHua.starName}化${selectedSiHua.siHua}落在【${palaceName}】，�
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !e.shiftKey && handleSend()}
-            placeholder="继续追问，如：今年适合换工作吗？"
+            placeholder={`继续追问，如：${liunianYear}年适合换工作吗？`}
             disabled={loading}
             className="flex-1 rounded-lg px-3 py-2 text-[11px] focus:outline-none transition-colors"
             style={{

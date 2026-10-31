@@ -1,6 +1,7 @@
 'use client';
 import { motion } from 'framer-motion';
-import { STEMS, SI_HUA_TABLE } from '@/lib/ziwei/constants';
+import { SI_HUA_TABLE } from '@/lib/ziwei/constants';
+import { buildThreeLayerContext, type TransformLanding } from '@/lib/ziwei/time-layers';
 import type { ZiweiChart } from '@/lib/ziwei/types';
 
 export type TimeView = 'mingpan' | 'daxian' | 'liunian';
@@ -47,24 +48,27 @@ export default function TimeNav({
   const currentDx = chart.daXians[chart.currentDaXianIndex];
 
   // 计算当前叠加四化信息
-  const getOverlayInfo = (): { stemName: string; overlay: Record<string, string> } | null => {
+  const getOverlayInfo = (): {
+    label: string;
+    stemName: string;
+    transforms: TransformLanding[];
+  } | null => {
     if (view === 'mingpan') return null;
 
-    if (view === 'daxian' && currentDx) {
-      const dxPalace = chart.palaces.find(p => p.branch === currentDx.palaceBranch);
-      if (!dxPalace) return null;
-      const stemIndex = dxPalace.stem;
+    const layers = buildThreeLayerContext(chart, view, liunianYear);
+    if (view === 'daxian') {
       return {
-        stemName: STEMS[stemIndex],
-        overlay: buildSiHuaOverlay(stemIndex),
+        label: '大限',
+        stemName: layers.layers.daxian.stem,
+        transforms: layers.layers.daxian.transformedStars,
       };
     }
 
     if (view === 'liunian') {
-      const stemIndex = getYearStemIndex(liunianYear);
       return {
-        stemName: STEMS[stemIndex],
-        overlay: buildSiHuaOverlay(stemIndex),
+        label: `${liunianYear} ${layers.layers.liunian.ganzhi}年 · 流年命宫${layers.layers.liunian.mingPalaceName.replace('宫', '')}`,
+        stemName: layers.layers.liunian.stem,
+        transforms: layers.layers.liunian.transformedStars,
       };
     }
 
@@ -151,14 +155,13 @@ export default function TimeNav({
           className="flex items-center gap-2 mt-1.5 px-1 flex-wrap"
         >
           <span className="text-[9px]" style={{ color: 'var(--t-faint)' }}>
-            {view === 'daxian' ? '大限' : `${liunianYear}`}·{overlayInfo.stemName}年四化：
+            {overlayInfo.label} · {overlayInfo.stemName}干四化：
           </span>
-          {(['禄', '权', '科', '忌'] as const).map(sh => {
-            const starName = Object.keys(overlayInfo.overlay).find(k => overlayInfo.overlay[k] === sh);
-            if (!starName) return null;
+          {overlayInfo.transforms.map((transform) => {
+            const { type: sh, star, palaceName } = transform;
             return (
               <span key={sh} className="text-[9px] font-medium" style={{ color: SIHUA_COLORS[sh] }}>
-                {starName}化{sh}
+                {star}化{sh}→{palaceName.replace('宫', '')}
               </span>
             );
           })}

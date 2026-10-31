@@ -3,7 +3,7 @@ import { useState } from 'react';
 import BirthForm from '@/components/BirthForm';
 import ChartBoard from '@/components/ChartBoard';
 import InsightPanel from '@/components/InsightPanel';
-import TimeNav, { type TimeView } from '@/components/TimeNav';
+import type { TimeView } from '@/components/TimeNav';
 import { generateChart } from '@/lib/ziwei/algorithm';
 import type { BirthInfo, ZiweiChart, Palace } from '@/lib/ziwei/types';
 
@@ -43,7 +43,12 @@ export default function ChartPage() {
     <main style={{ maxWidth: 1280, margin: '0 auto', padding: '24px 16px' }}>
       <button
         type="button"
-        onClick={() => { setChart(null); setSelectedPalace(null); }}
+        onClick={() => {
+          setChart(null);
+          setSelectedPalace(null);
+          setView('mingpan');
+          setLiunianYear(new Date().getFullYear());
+        }}
         style={{
           marginBottom: 16, padding: '6px 14px', cursor: 'pointer',
           border: '1px solid #ccc', borderRadius: 8, background: 'transparent',
@@ -52,14 +57,6 @@ export default function ChartPage() {
         ← 重新起盘
       </button>
 
-      <TimeNav
-        chart={chart}
-        view={view}
-        liunianYear={liunianYear}
-        onViewChange={setView}
-        onYearChange={setLiunianYear}
-      />
-
       <div
         style={{
           display: 'grid',
@@ -67,8 +64,20 @@ export default function ChartPage() {
           gap: 20, marginTop: 16, alignItems: 'start',
         }}
       >
-        <ChartBoard chart={chart} onPalaceSelect={setSelectedPalace} />
-        <InsightPanel chart={chart} selectedPalace={selectedPalace} />
+        <ChartBoard
+          chart={chart}
+          view={view}
+          liunianYear={liunianYear}
+          onViewChange={setView}
+          onLiunianYearChange={setLiunianYear}
+          onPalaceSelect={setSelectedPalace}
+        />
+        <InsightPanel
+          chart={chart}
+          selectedPalace={selectedPalace}
+          timeView={view}
+          liunianYear={liunianYear}
+        />
       </div>
     </main>
   );
